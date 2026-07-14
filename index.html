@@ -161,19 +161,24 @@
 
       <div class="section">
         <div class="section-title">Flux Calibration</div>
-        <div class="hint" style="margin-top:0;">F₀ measured at reference FOV</div>
+        <div class="hint" style="margin-top:0;">F₀ measured at reference FOV.</div>
         <div class="field">
           <div class="label">F₀ (ph/s per cell)</div>
           <input type="text" id="fluxInput">
+        </div>
+        <div class="slider-block">
+          <div class="slider-head"><span class="label">Typical range</span><span class="val" id="fluxVal"></span></div>
+          <input type="range" id="fluxSlider" min="100" max="10000" step="10">
         </div>
         <div class="field">
           <div class="label">at FOV area (mm²)</div>
           <input type="text" id="refAreaInput">
         </div>
+        <div class="hint">Photon flux depends on the properties of the imaging system, the sample, laser power and indicator.</div>
       </div>
 
       <div class="section">
-        <div class="section-title">Your Setup</div>
+        <div class="section-title">FOV Dimensions</div>
         <div class="two-col">
           <div class="field">
             <div class="label">FOV X (µm)</div>
@@ -203,12 +208,12 @@
       </div>
 
       <div class="section">
-        <div class="section-title">Laser &amp; Pixels</div>
+        <div class="section-title">Laser</div>
         <div class="label">Pulse rate (MHz)</div>
         <div class="indicator-btns" id="pulseRateBtns"></div>
         <input type="text" id="pulseRateInput">
-        <div class="stat-row" style="margin-top:8px;"><span class="l">Pixels / line (derived)</span><span class="v" id="pxPerLine"></span></div>
-        <div class="hint">square pixels: lines/frame × fovX/fovY</div>
+        <div class="stat-row" style="margin-top:8px; display:none;"><span class="l">Pixels / line (derived)</span><span class="v" id="pxPerLine"></span></div>
+        <div class="hint" style="display:none;">square pixels: lines/frame × fovX/fovY</div>
       </div>
 
     </div>
@@ -391,7 +396,7 @@ document.getElementById("eqMain").innerHTML =
   `\\(d' \\;=\\; \\dfrac{\\Delta F}{F}\\sqrt{\\dfrac{1}{2}\\,F_0\\,\\tau}\\)`;
 
 document.getElementById("footnote").innerHTML =
-  `Drag point · or enter values in Your Setup &nbsp;·&nbsp; thin dashed = \\(d'\\) contours &nbsp;·&nbsp; thick solid = \\(d'=3\\) &nbsp;·&nbsp; thick dashed = 0.5 / 5 µm/px spatial bounds &nbsp;·&nbsp; labeled dashed = Nyquist &nbsp;·&nbsp; line/label shade adapts to the heatmap for contrast`;
+  `Drag point · or enter values in FOV Dimensions &nbsp;·&nbsp; solid line = \\(d'=3\\) threshold &nbsp;·&nbsp; thin dashed = line spacing (µm/px) contours &nbsp;·&nbsp; labeled dashed = Nyquist &nbsp;·&nbsp; line/label shade adapts to the heatmap for contrast`;
 
 // ── derived getters ──────────────────────────────────────────────────────
 function linesPerSecEff() { return state.linesPerSec * (state.bidirectional ? 2 : 1); }
@@ -429,16 +434,35 @@ dffSlider.addEventListener("input", e => { state.dff = parseFloat(e.target.value
 tauSlider.addEventListener("input", e => { state.tau = parseFloat(e.target.value); state.indicatorIdx = 5; syncControls(); render(); });
 
 // ── flux calibration ──────────────────────────────────────────────────────
+// F0 is not a universal constant: it depends on indicator, laser power,
+// pulse characteristics, PSF, imaging depth, and window quality. The slider
+// is clamped to the range typically reported in the 2P calcium-imaging
+// literature (~100–10,000 ph/s per cell) rather than left unbounded.
+const FLUX_MIN = 100, FLUX_MAX = 10000;
 const fluxInput = document.getElementById("fluxInput");
 const refAreaInput = document.getElementById("refAreaInput");
+const fluxSlider = document.getElementById("fluxSlider");
+const fluxVal = document.getElementById("fluxVal");
 fluxInput.value = String(state.refFlux);
 refAreaInput.value = String(state.refArea);
-function commitFlux(){ const v=parseFloat(fluxInput.value); if(!isNaN(v)&&v>0){ state.refFlux=v; render(); } }
+fluxSlider.value = Math.min(FLUX_MAX, Math.max(FLUX_MIN, state.refFlux));
+fluxVal.textContent = `${Math.round(state.refFlux)} ph/s`;
+function commitFlux(){ const v=parseFloat(fluxInput.value); if(!isNaN(v)&&v>0){ state.refFlux=v; syncFluxUI(); render(); } }
 function commitRefArea(){ const v=parseFloat(refAreaInput.value); if(!isNaN(v)&&v>0){ state.refArea=v; render(); } }
+function syncFluxUI(){
+  fluxSlider.value = Math.min(FLUX_MAX, Math.max(FLUX_MIN, state.refFlux));
+  fluxVal.textContent = `${Math.round(state.refFlux)} ph/s`;
+}
 fluxInput.addEventListener("blur", commitFlux);
 fluxInput.addEventListener("keydown", e => { if(e.key==="Enter") commitFlux(); });
 refAreaInput.addEventListener("blur", commitRefArea);
 refAreaInput.addEventListener("keydown", e => { if(e.key==="Enter") commitRefArea(); });
+fluxSlider.addEventListener("input", e => {
+  state.refFlux = parseFloat(e.target.value);
+  fluxInput.value = String(state.refFlux);
+  fluxVal.textContent = `${Math.round(state.refFlux)} ph/s`;
+  render();
+});
 
 // ── scan rate: lines/s, bidirectional, lines/frame ───────────────────────
 const linesPerSecBtnRow = document.getElementById("linesPerSecBtns");
@@ -563,8 +587,12 @@ function renderCanvas() {
   // so they shift live as you change Scan Rate settings. Color is picked
   // per dash segment to contrast with the heatmap right under it.
   const lineRate = linesPerSecEff();
+  // x-position (as an area) of the d′=3 threshold line — computed here so
+  // the 0.5 µm/px label below can be anchored to it instead of the fixed
+  // top-left corner, where it used to collide with the "d′=" prefix text.
+  const d3CritArea = refArea * refFlux * dff * dff * tau * 0.5 / 9;
   if (showLS) {
-    const lsLevels = [0.1, 0.2, 0.5, 1, 2, 5, 10];
+    const lsLevels = [0.5, 1, 2, 5, 10];
     lsLevels.forEach(ls => {
       const isBound = ls === 0.5 || ls === 5;
       const pts = [];
@@ -574,11 +602,22 @@ function renderCanvas() {
         if (areaAt < AREA_MIN || areaAt > AREA_MAX) continue;
         pts.push({ x: areaToX(areaAt), y: frToY(frv), area: areaAt });
       }
-      strokeAdaptiveDashed(pts, isBound ? 8 : 5, isBound ? 4 : 4, isBound ? 2 : 1, maxD);
+      // the 0.5 µm/px bound shares the Nyquist line's exact dash/weight,
+      // since both mark a hard sampling-limit boundary.
+      const dashOn  = ls === 0.5 ? 10 : (isBound ? 8 : 5);
+      const dashOff = 4;
+      const lw      = ls === 0.5 ? 2 : 1;
+      strokeAdaptiveDashed(pts, dashOn, dashOff, lw, maxD);
 
-      const fr_label = FR_MAX * 0.7;
-      const area_label = Math.pow(ls * lineRate / (fr_label * 1000), 2);
-      if (area_label > AREA_MIN && area_label < AREA_MAX) {
+      let fr_label, area_label;
+      if (ls === 0.5 && d3CritArea > AREA_MIN && d3CritArea < AREA_MAX) {
+        area_label = d3CritArea;
+        fr_label = ls * lineRate / (1000 * Math.sqrt(area_label));
+      } else {
+        fr_label = FR_MAX * 0.7;
+        area_label = Math.pow(ls * lineRate / (fr_label * 1000), 2);
+      }
+      if (area_label > AREA_MIN && area_label < AREA_MAX && fr_label > FR_MIN && fr_label < FR_MAX) {
         const lx = areaToX(area_label), ly = frToY(fr_label);
         const dpAtLabel = dprime(area_label, dff, tau, refFlux, refArea);
         ctx.save();
@@ -592,23 +631,21 @@ function renderCanvas() {
     });
   }
 
-  // d′ threshold contours: vertical (area-only), matching F0 ∝ 1/area.
-  // The heatmap directly under each line is exactly dpToColor(level), so
-  // that's what its own contrast color is computed from.
-  const contourLevels = [0.5, 1, 2, 3, 5, 10];
+  // d′ threshold contour: vertical (area-only), matching F0 ∝ 1/area.
+  // Only the d′=3 detectability threshold is drawn. The heatmap directly
+  // under the line is exactly dpToColor(level), so that's what its own
+  // contrast color is computed from.
+  const contourLevels = [3];
   contourLevels.forEach(level => {
     const critArea = refArea * refFlux * dff * dff * tau * 0.5 / (level * level);
     const cxRaw = areaToX(critArea);
     if (cxRaw < 0 || cxRaw > CW) return;
     const cx = Math.round(cxRaw) + 0.5;
     const color = contrastColorFor(level, maxD);
-    const isMain = level === 3;
     ctx.strokeStyle = color;
-    ctx.lineWidth = isMain ? 2 : 1;
-    if (!isMain) ctx.setLineDash([6,4]);
+    ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(cx,0); ctx.lineTo(cx,CH); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.font = `bold ${isMain?15:13}px Helvetica Neue,Arial,sans-serif`;
+    ctx.font = `bold 15px Helvetica Neue,Arial,sans-serif`;
     ctx.fillStyle = color;
     ctx.fillText(`${level}`, cxRaw+4, 16);
   });
