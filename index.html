@@ -634,7 +634,8 @@ function renderCanvas() {
   // d′ threshold contour: vertical (area-only), matching F0 ∝ 1/area.
   // Only the d′=3 detectability threshold is drawn. The heatmap directly
   // under the line is exactly dpToColor(level), so that's what its own
-  // contrast color is computed from.
+  // contrast color is computed from. Thin, no shadow — the "d′=" label sits
+  // immediately to the left of the number, right next to the line itself.
   const contourLevels = [3];
   contourLevels.forEach(level => {
     const critArea = refArea * refFlux * dff * dff * tau * 0.5 / (level * level);
@@ -642,17 +643,20 @@ function renderCanvas() {
     if (cxRaw < 0 || cxRaw > CW) return;
     const cx = Math.round(cxRaw) + 0.5;
     const color = contrastColorFor(level, maxD);
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(cx,0); ctx.lineTo(cx,CH); ctx.stroke();
-    ctx.font = `bold 15px Helvetica Neue,Arial,sans-serif`;
+
+    const levelLabel = `${level}`;
     ctx.fillStyle = color;
-    ctx.fillText(`${level}`, cxRaw+4, 16);
+    ctx.font = `bold 15px Helvetica Neue,Arial,sans-serif`;
+    ctx.fillText(levelLabel, cxRaw+4, 16);
+    ctx.font = `12px Helvetica Neue,Arial,sans-serif`;
+    const prefixW = ctx.measureText("d′=").width;
+    ctx.fillText("d′=", Math.max(2, cxRaw - prefixW - 2), 16);
   });
-  const dpAtCorner = dprime(xToArea(24), dff, tau, refFlux, refArea);
-  ctx.font="12px Helvetica Neue,Arial,sans-serif";
-  ctx.fillStyle = contrastColorFor(dpAtCorner, maxD);
-  ctx.fillText("d′=",3,16);
 
   const nyq  = nyquistHz(tau);
   const nyqYRaw = frToY(nyq);
