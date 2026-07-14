@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Single-Spike Detection Phase Diagram — d′ vs FOV vs Frame Rate</title>
+<title>Event Detection Parameter Explorer — d′ vs FOV vs Frame Rate</title>
 <script>
   window.MathJax = {
     tex: { inlineMath: [['\\(', '\\)']] },
@@ -103,7 +103,7 @@
   <div class="header-row">
     <div class="header-left">
       <div class="eyebrow">2P Calcium Imaging</div>
-      <h1>Single-Spike Detection Phase Diagram</h1>
+      <h1>Event Detection Parameter Explorer</h1>
     </div>
     <div class="eq-callout" id="eqCallout">
       <div class="eq-main" id="eqMain"></div>
@@ -168,7 +168,7 @@
         </div>
         <div class="slider-block">
           <div class="slider-head"><span class="label">Typical range</span><span class="val" id="fluxVal"></span></div>
-          <input type="range" id="fluxSlider" min="100" max="10000" step="10">
+          <input type="range" id="fluxSlider" min="100" max="30000" step="10">
         </div>
         <div class="field">
           <div class="label">at FOV area (mm²)</div>
@@ -322,6 +322,24 @@ function contrastColorFor(dp, maxD) {
   return `rgb(${v},${v},${v})`;
 }
 
+// Same idea as contrastColorFor, but for text labels specifically: a
+// stronger stretch plus a guaranteed minimum luminance gap so labels stay
+// legible even in the colormap's mid-luminance band (e.g. the teal/green
+// stretch), where the plain line contrast above can land too close to it.
+// Lines stay gradual/subtle; labels get a harder pop.
+function labelColorFor(dp, maxD) {
+  const t = luminanceOfColor(dpToColor(dp, maxD)) / 255;
+  let ot = 1 - t;
+  ot = 0.5 + (ot - 0.5) * 2.6;
+  const MIN_GAP = 0.35;
+  if (Math.abs(ot - t) < MIN_GAP) {
+    ot = t < 0.5 ? Math.min(1, t + MIN_GAP) : Math.max(0, t - MIN_GAP);
+  }
+  ot = Math.min(1, Math.max(0, ot));
+  const v = Math.round(ot * 255);
+  return `rgb(${v},${v},${v})`;
+}
+
 function buildRaster(dff, tau, refFlux, refArea) {
   return AREA_VALS.map(area =>
     FR_VALS.map(() => dprime(area, dff, tau, refFlux, refArea))
@@ -437,8 +455,8 @@ tauSlider.addEventListener("input", e => { state.tau = parseFloat(e.target.value
 // F0 is not a universal constant: it depends on indicator, laser power,
 // pulse characteristics, PSF, imaging depth, and window quality. The slider
 // is clamped to the range typically reported in the 2P calcium-imaging
-// literature (~100–10,000 photon/s per cell) rather than left unbounded.
-const FLUX_MIN = 100, FLUX_MAX = 10000;
+// literature (~100–30,000 photon/s per cell) rather than left unbounded.
+const FLUX_MIN = 100, FLUX_MAX = 30000;
 const fluxInput = document.getElementById("fluxInput");
 const refAreaInput = document.getElementById("refAreaInput");
 const fluxSlider = document.getElementById("fluxSlider");
@@ -616,7 +634,7 @@ function renderCanvas() {
         ctx.translate(lx, ly);
         ctx.rotate(-0.42);
         ctx.font = `${isBound?'bold ':' '}12px Helvetica Neue,Arial,sans-serif`;
-        ctx.fillStyle = contrastColorFor(dpAtLabel, maxD);
+        ctx.fillStyle = labelColorFor(dpAtLabel, maxD);
         ctx.fillText(`${ls} µm`, 2, -3);
         ctx.restore();
       }
@@ -634,15 +652,16 @@ function renderCanvas() {
     const cxRaw = areaToX(critArea);
     if (cxRaw < 0 || cxRaw > CW) return;
     const cx = Math.round(cxRaw) + 0.5;
-    const color = contrastColorFor(level, maxD);
+    const lineColor = contrastColorFor(level, maxD);
+    const labelColor = labelColorFor(level, maxD);
     ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = lineColor;
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(cx,0); ctx.lineTo(cx,CH); ctx.stroke();
 
     const levelLabel = `${level}`;
-    ctx.fillStyle = color;
+    ctx.fillStyle = labelColor;
     ctx.font = `bold 15px Helvetica Neue,Arial,sans-serif`;
     ctx.fillText(levelLabel, cxRaw+4, 16);
     ctx.font = `12px Helvetica Neue,Arial,sans-serif`;
@@ -658,7 +677,7 @@ function renderCanvas() {
     strokeAdaptiveDashed(nyqPts, 10, 4, 2, maxD);
     const dpAtNyqLabel = dprime(xToArea(90), dff, tau, refFlux, refArea);
     ctx.font="13px Helvetica Neue,Arial,sans-serif";
-    ctx.fillStyle = contrastColorFor(dpAtNyqLabel, maxD);
+    ctx.fillStyle = labelColorFor(dpAtNyqLabel, maxD);
     ctx.fillText(`↓ Nyquist limit (${nyq.toFixed(1)} Hz)`,6,nyqYRaw-5);
   }
 
